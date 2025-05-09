@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理者ビュー（先生コメント機能付き）</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #f2f2f2;
+      padding: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h2 {
+      text-align: center;
+      color: #333;
+    }
+    .record, .summary {
+      background: #fff;
+      padding: 12px;
+      margin: 12px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .record time {
+      font-size: 0.9em;
+      color: #666;
+    }
+    .record p {
+      margin: 4px 0;
+    }
+    .warning {
+      color: red;
+      font-weight: bold;
+      text-align: center;
+    }
+    .admin-controls {
+      margin-top: 24px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 60px;
+      font-size: 0.9em;
+      margin-top: 6px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      padding: 6px;
+    }
+    button.comment-button {
+      background-color: #2d89ef;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      margin-top: 6px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>管理者ダッシュボード</h2>
+  <div id="accessGate">
+    <p class="warning">認証中...</p>
+  </div>
+  <div id="adminContainer" style="display:none;">
+    <div class="admin-controls">
+      <label for="studentSelect">生徒を選択：</label>
+      <select id="studentSelect"></select>
+      <button onclick="loadStudentRecords()">表示</button>
+    </div>
+    <div class="summary">
+      <h3>今日の提出サマリー</h3>
+      <canvas id="zoneChart" width="400" height="200"></canvas>
+    </div>
+    <div class="summary">
+      <h3>生徒ごとの直近の投稿</h3>
+      <div id="latestContainer"></div>
+    </div>
+    <div id="recordContainer"></div>
+  </div>
+
+  <script>
+    let students = [];
+
+    google.script.run.withSuccessHandler(function(email) {
+      google.script.run.withSuccessHandler(function(admins) {
+        const me = admins.find(a => a.email === email);
+        if (me) {
+          document.getElementById("accessGate").style.display = "none";
+          document.getElementById("adminContainer").style.display = "block";
+          initStudentList();
+          loadDailySummary();
+          loadLatestPosts();
+        } else {
+          document.getElementById("accessGate").innerHTML = "<p class='warning'>管理者として登録されていません。</p>";
+        }
+      }).getAdminList();
+    }).getMyEmail();
+
+    function initStudentList() {
+      google.script.run.withSuccessHandler(function(data) {
+        students = data;
+        const select = document.getElementById("studentSelect");
+        data.forEach(s => {
+          const opt = document.createElement("option");
+          opt.value = s.name.trim();
+          opt.textContent = s.name;
+          select.appendChild(opt);
+        });
+      }).getStudentList();
+    }
+
+    function loadStudentRecords() {
+      const name = document.getElementById("studentSelect").value.trim();
+      if (!name) return;
+      google.script.run.withSuccessHandler(renderRecords).getResponsesByName(name);
+    }
+
+    function renderRecords(data) {
+      const container = document.getElementById("recordContainer");
+      container.innerHTML = "";
+      if (!data || data.length === 0) {
+        container.innerHTML = "<p class='warning'>記録が見つかりませんでした。</p>";
+        return;
+      }
+      data.forEach(record => {
+        const div = document.createElement("div");
+        div.className = "record";
+        const ts = record["タイムスタンプ"];
+        div.innerHTML = `
+          <time>${ts}（${record["モード"]}）</time>
+          <p><strong>氏名：</strong> ${record["氏名"] || "-"}</p>
+          <p><strong>ゾーン：</strong> ${record["心のゾーンは？"] || "-"}</p>
+          <p><strong>感情：</strong> ${record["今の感情は？"] || "-"}</p>
+          <p><strong>エネルギー：</strong> ${record["心のエネルギーは？"] || "-"}</p>
+          <p><strong>記録：</strong> ${record["きょうのココログ"] || record["そのために何する？"] || "-"}</p>
+          <label>先生コメント：</label>
+          <textarea id="comment-${ts}">${record["先生コメント"] || ""}</textarea>
+        `;
+        const button = document.createElement("button");
+        button.className = "comment-button";
+        button.textContent = "保存";
+        button.addEventListener("click", () => saveComment(ts));
+        div.appendChild(button);
+        container.appendChild(div);
+      });
+    }
+
+    function saveComment(timestamp) {
+      const textarea = document.getElementById("comment-" + timestamp);
+      const comment = textarea.value;
+      google.script.run.withSuccessHandler(() => {
+        alert("コメントを保存しました！");
+        loadStudentRecords();
+      }).saveTeacherComment(timestamp, comment);
+    }
+
+    function loadDailySummary() {
+      google.script.run.withSuccessHandler(function(summary) {
+        const ctx = document.getElementById('zoneChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: ['😀', '😌', '😞', '😡'],
+            datasets: [{
+              label: '人数',
+              data: [summary["😀"] || 0, summary["😌"] || 0, summary["😞"] || 0, summary["😡"] || 0],
+              backgroundColor: ['#fdd835', '#81c784', '#64b5f6', '#e57373']
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { display: false },
+              title: { display: true, text: '今日のゾーン別人数' }
+            },
+            scales: {
+              y: { beginAtZero: true }
+            }
+          }
+        });
+      }).getTodayZoneSummary();
+    }
+
+    function loadLatestPosts() {
+      google.script.run.withSuccessHandler(function(data) {
+        const container = document.getElementById("latestContainer");
+        container.innerHTML = "";
+        if (!data || data.length === 0) {
+          container.innerHTML = "<p class='warning'>直近の投稿が見つかりませんでした。</p>";
+          return;
+        }
+        data.forEach(record => {
+          const div = document.createElement("div");
+          div.className = "record";
+          div.innerHTML = `
+            <time>${record["タイムスタンプ"]}（${record["モード"]}）</time>
+            <p><strong>氏名：</strong> ${record["氏名"] || "-"}</p>
+            <p><strong>ゾーン：</strong> ${record["心のゾーンは？"] || "-"}</p>
+            <p><strong>感情：</strong> ${record["今の感情は？"] || "-"}</p>
+            <p><strong>エネルギー：</strong> ${record["心のエネルギーは？"] || "-"}</p>
+            <p><strong>記録：</strong> ${record["きょうのココログ"] || record["そのために何する？"] || "-"}</p>
+          `;
+          container.appendChild(div);
+        });
+      }).getLatestPostByStudents();
+    }
+  </script>
+</body>
+</html>

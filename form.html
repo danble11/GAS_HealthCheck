@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>こころチェックフォーム</title>
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #f5f7fa;
+      padding: 20px;
+      margin: 0;
+      color: #333;
+    }
+    h2 {
+      color: #2c3e50;
+      font-weight: 500;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .tabs {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .tabs button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      margin: 0 5px;
+      border: none;
+      border-radius: 6px;
+      background-color: #ccc;
+      cursor: pointer;
+    }
+    .tabs button.active {
+      background-color: #2d89ef;
+      color: #fff;
+    }
+    label {
+      display: block;
+      margin-top: 16px;
+      margin-bottom: 6px;
+      font-weight: 500;
+      font-size: 1rem;
+    }
+    select, textarea {
+      width: 100%;
+      padding: 12px;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background-color: #fff;
+      box-sizing: border-box;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+    input[type="submit"] {
+      background-color: #2d89ef;
+      color: white;
+      border: none;
+      padding: 14px;
+      font-size: 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 24px;
+      width: 100%;
+      transition: background-color 0.3s;
+    }
+    input[type="submit"]:hover:enabled {
+      background-color: #1b5fcc;
+    }
+    #log {
+      margin-top: 40px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .log-entry {
+      background: #fff;
+      padding: 10px;
+      margin: 8px 0;
+      border-radius: 6px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+<body>
+  <h2>こころチェックフォーム</h2>
+  <div class="tabs">
+    <button id="morningTab" class="active" onclick="switchTab('morning')">午前</button>
+    <button id="afternoonTab" onclick="switchTab('afternoon')">午後</button>
+  </div>
+  <div id="formContainer"></div>
+  <div id="log"></div>
+  <script>
+    let mode = "morning";
+
+    function switchTab(selectedMode) {
+      mode = selectedMode;
+      document.getElementById("morningTab").classList.toggle("active", mode === "morning");
+      document.getElementById("afternoonTab").classList.toggle("active", mode === "afternoon");
+      renderForm();
+    }
+
+    google.script.run.withSuccessHandler(function(optionsMap) {
+      window.optionsMap = optionsMap;
+      renderForm();
+    }).getOptionsFromSheet();
+
+    function renderForm() {
+      const container = document.getElementById("formContainer");
+      container.innerHTML = "";
+      const form = document.createElement("form");
+      form.onsubmit = async function(e) {
+        e.preventDefault();
+        const submitBtn = form.querySelector('input[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.value = "送信中...";
+
+        const formData = Object.fromEntries(new FormData(form).entries());
+        formData["モード"] = mode;
+
+        const freeText = mode === "morning" ? formData["そのために何する？"] : formData["きょうのココログ"];
+        if (!formData["そのために何する？"]) formData["そのために何する？"] = freeText;
+        if (!formData["きょうのココログ"]) formData["きょうのココログ"] = freeText;
+        formData["そのために何する？"] = formData["そのために何する？"] || "";
+        formData["きょうのココログ"] = formData["きょうのココログ"] || "";
+
+        const targetField = mode === "morning" ? formData["そのために何する？"] : formData["きょうのココログ"];
+
+        google.script.run.withSuccessHandler((reply) => {
+          formData["AIメッセージ"] = reply;
+          google.script.run.submitForm(formData);
+          alert("送信完了！AIからのメッセージ：" + reply);
+          form.reset();
+          submitBtn.disabled = false;
+          submitBtn.value = "送信";
+          loadLog();
+        }).getLLMReply(`以下は中学生が書いた記録です。この子が前向きな気持ちになれるような、やさしく応援するメッセージを送ってください。
+
+「${targetField}」`);
+      };
+
+
+      const keys = mode === "morning"
+        ? ["氏名", "体の疲れは？", "体のエネルギーは？", "心の疲れは？", "心のエネルギーは？", "心のゾーンは？", "今の感情は？", "どの感情になりたい？"]
+        : ["氏名", "心のゾーンは？", "今の感情は？"];
+
+      for (const key of keys) {
+        const label = document.createElement("label");
+        label.textContent = key + "：";
+        form.appendChild(label);
+
+        const select = document.createElement("select");
+        select.name = key;
+        select.required = true;
+
+        const placeholder = document.createElement("option");
+        placeholder.textContent = "選んでください";
+        placeholder.value = "";
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        select.appendChild(placeholder);
+
+        for (const value of (window.optionsMap[key] || [])) {
+          const opt = document.createElement("option");
+          opt.value = value;
+          opt.textContent = value;
+          select.appendChild(opt);
+        }
+        form.appendChild(select);
+      }
+
+      const freeLabel = document.createElement("label");
+      freeLabel.textContent = mode === "morning" ? "そのために何する？：" : "きょうのココログ：";
+      form.appendChild(freeLabel);
+
+      const textarea = document.createElement("textarea");
+      textarea.name = mode === "morning" ? "そのために何する？" : "きょうのココログ";
+      form.appendChild(textarea);
+
+      const submit = document.createElement("input");
+      submit.type = "submit";
+      submit.value = "送信";
+      form.appendChild(submit);
+
+      container.appendChild(form);
+    }
+
+    function loadLog() {
+      google.script.run.withSuccessHandler(function(records) {
+        const log = document.getElementById("log");
+        log.innerHTML = "";
+        const latest = records.slice(0, 10);
+        for (const entry of latest) {
+          const div = document.createElement("div");
+          div.className = "log-entry";
+          div.innerHTML = `
+            <strong>${entry[0]}（${entry[1]}）</strong><br>
+            氏名: ${entry[2] || "-"}<br>
+            感情: ${entry[9] || "-"}<br>
+            ココログ: ${entry[11] || entry[10] || "-"}<br>
+            <em>AIメッセージ: ${entry[12] || "-"}</em>
+          `;
+          log.appendChild(div);
+        }
+      }).getRecentLogs();
+    }
+  </script>
+</body>
+</html>
