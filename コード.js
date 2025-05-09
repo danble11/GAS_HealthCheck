@@ -179,7 +179,7 @@ function getTodayZoneSummary() {
 }
 
 function getLLMReply(text) {
-  const apiKey = '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';
+  const apiKey = 'OPENAI_APIKEY';
   const url = 'https://api.openai.com/v1/chat/completions';
 
   const prompt = `以下は中学生が書いた記録です。この子が前向きな気持ちになれるような、やさしく応援するメッセージを50文字程度で送ってください。また，どのような行動を取るかを具体的に測定や観測可能な形で示せるように促してください\n\n「${text}」`;
