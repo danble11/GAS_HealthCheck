@@ -1,4 +1,4 @@
-// ========= Code.gs =========
+
 
 function doGet(e) {
   const view = e.parameter.view || "form";
